@@ -528,7 +528,11 @@ class DS_STAR_Agent:
         data_desc_str = "\n".join([f"File: {k}\n{v}" for k, v in data_descriptions.items()])
         
         # PHASE 2: Iterative Planning & Execution
-        if self.controller.should_execute_step(len(absolute_data_files)):
+        # Use explicit phase flag instead of step-index math, which broke
+        # whenever the Analyzer's code needed debugging (extra steps shifted
+        # current_step past the assumed boundary, silently skipping Phase 2).
+        state = self.storage.get_current_state()
+        if not state.get("phase2_done", False):
             self.controller.logger.info("=== PHASE 2: ITERATIVE PLANNING & VERIFICATION ===")
             plan = []
             plan.append(self.plan_next_step(query, data_desc_str, plan, ""))
@@ -568,26 +572,24 @@ class DS_STAR_Agent:
                 exec_result = self._execute_and_debug_code(code, absolute_data_files, data_desc_str)
             else:
                 self.controller.logger.warning("Max refinement rounds reached")
-        
-        # Load code and exec_result from previous run if not defined (resuming case)
+            # Persist Phase 2 outcome for clean resume
+            state = self.storage.get_current_state()
+            state["phase2_done"] = True
+            state["phase2_code"] = code
+            state["phase2_result"] = exec_result
+            self.storage.save_state(state)
+
+        # Load code and exec_result from previous run if not defined
         if code is None or exec_result is None:
-            steps = self.storage.list_steps()
-            
-            # Find the last step with code
-            for step in reversed(steps):
-                step_data = self.storage.get_step(step['step_id'])
-                if step_data and step_data.get('code'):
-                    code = step_data['code']
-                    exec_result = step_data.get('result', '')
-                    self.controller.logger.info(f"Loaded code and results from step {step['step_id']}")
-                    break
-            
-            # If still not found, this is an error
+            state = self.storage.get_current_state()
+            code = state.get("phase2_code")
+            exec_result = state.get("phase2_result", "")
             if code is None:
-                raise ValueError("Could not load code from previous steps. Please ensure the pipeline has been run before.")
-            if exec_result is None:
-                exec_result = ""  # Default to empty string if not found
-        
+                raise ValueError(
+                    "Could not load code from previous run. "
+                    "Re-run without --resume."
+                )
+
         # PHASE 3: Finalization
         self.controller.logger.info("=== PHASE 3: FINALIZING ===")
         final_code = self.finalize_solution(
