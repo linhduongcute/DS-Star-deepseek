@@ -356,7 +356,7 @@ class DS_STAR_Agent:
         except Exception as e:
             return "", f"Execution error: {str(e)}"
 
-    def _execute_and_debug_code(self, code: str, data_files: List[str], data_desc: str) -> str:
+    def _execute_and_debug_code(self, code: str, data_files: List[str], data_desc: str) -> Tuple[str, str]:
         exec_result, error = self._execute_code(code, data_files)
 
         # Debug loop
@@ -369,7 +369,7 @@ class DS_STAR_Agent:
 
         if error:
             self.controller.logger.fatal(f"Execution error: {error}")
-        return exec_result
+        return code, exec_result
 
 
     def analyze_data(self, filename: str) -> Dict[str, str]:
@@ -383,8 +383,8 @@ class DS_STAR_Agent:
         )
         
         code = self._extract_code_block(result)
-        exec_result = self._execute_and_debug_code(code, [filename], data_desc="")
-        
+        code, exec_result = self._execute_and_debug_code(code, [filename], data_desc="")
+
         return {"code": code, "result": exec_result, "filename": filename}
 
     def plan_next_step(self, query: str, data_desc: str, current_plan: List[str], last_result: Optional[str]) -> str:
@@ -538,7 +538,7 @@ class DS_STAR_Agent:
             plan.append(self.plan_next_step(query, data_desc_str, plan, ""))
             
             code = self.generate_code(plan, data_desc_str)
-            exec_result = self._execute_and_debug_code(code, absolute_data_files, data_desc_str)
+            code, exec_result = self._execute_and_debug_code(code, absolute_data_files, data_desc_str)
             
             # Refinement rounds
             for round_idx in range(self.config.max_refinement_rounds):
@@ -569,7 +569,7 @@ class DS_STAR_Agent:
                 
                 # Generate and execute new code
                 code = self.generate_code(plan, data_desc_str, base_code=code)
-                exec_result = self._execute_and_debug_code(code, absolute_data_files, data_desc_str)
+                code, exec_result = self._execute_and_debug_code(code, absolute_data_files, data_desc_str)
             else:
                 self.controller.logger.warning("Max refinement rounds reached")
             # Persist Phase 2 outcome for clean resume
@@ -598,7 +598,7 @@ class DS_STAR_Agent:
             data_desc_str
         )
         
-        final_result = self._execute_and_debug_code(final_code, absolute_data_files, data_desc_str)
+        final_code, final_result = self._execute_and_debug_code(final_code, absolute_data_files, data_desc_str)
         
         # Save final output
         output_file = self.storage.run_dir / "final_output" / "result.json"
